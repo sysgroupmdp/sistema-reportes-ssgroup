@@ -25,12 +25,77 @@ REPORTES = APP_DIR / "reportes_pdf"
 DB_PATH = APP_DIR / "ss_group_reportes.db"
 LOGO_PATH = ASSETS / "logo_ss_group.jpg"
 
+# Firmas profesionales. Si existen estos archivos dentro de /assets, se insertan en el PDF.
+FIRMA_MARTIN_PATH = ASSETS / "firma_martin.png"
+FIRMA_JUANI_PATH = ASSETS / "firma_juani.png"
+
+PROFESIONALES = {
+    "Lic. Martín Nicolás Sirvent": {
+        "nombre": "Lic. Martín Nicolás Sirvent",
+        "matricula": "LSH-007382 PBA CPSH",
+        "firma": FIRMA_MARTIN_PATH,
+    },
+    "Lic. Juan Ignacio Sirvent": {
+        "nombre": "Lic. Juan Ignacio Sirvent",
+        "matricula": "",
+        "firma": FIRMA_JUANI_PATH,
+    },
+}
+
 UPLOADS.mkdir(exist_ok=True)
 REPORTES.mkdir(exist_ok=True)
 
 VERDE = colors.HexColor("#11823b")
 VIOLETA = colors.HexColor("#3f2578")
 GRIS = colors.HexColor("#777777")
+
+# Clientes base migrados desde Gestión Administrativa.
+# Se reponen automáticamente si la base local se reinicia, sin duplicarlos.
+CLIENTES_GESTION_BASE = [{'nombre': 'MAGLIANO MARCELO', 'cuit': ''},
+ {'nombre': 'JUAREZ CESAR', 'cuit': ''},
+ {'nombre': 'EULOGIO CONDORI', 'cuit': ''},
+ {'nombre': 'ROJAS MARTIN', 'cuit': ''},
+ {'nombre': 'BIOPARQUE BATAN 2023 S.A.', 'cuit': '30718359453'},
+ {'nombre': 'ALTURAS MS MIRAMAR S.R.L', 'cuit': '30718579763'},
+ {'nombre': 'GAUTHIER WALTER', 'cuit': ''},
+ {'nombre': 'COOPERATIVA DE TRABAJO COOPECONS LTDA', 'cuit': '30717179680'},
+ {'nombre': 'OBISPADO DE MAR DEL PLATA', 'cuit': '30542337555'},
+ {'nombre': 'COOPERATIVA DE TRABAJO EL CHE LIMITADA', 'cuit': '33711078199'},
+ {'nombre': 'COOPERATIVA DE TRABAJO SEGUIMOS LUCHANDO LTDA', 'cuit': '30714199753'},
+ {'nombre': 'INVERSORA EN CONSTRUCCIONES DE COBO S.A.', 'cuit': '30711651280'},
+ {'nombre': 'GALVAN', 'cuit': ''},
+ {'nombre': 'SINDICATO DE QUIMICOS', 'cuit': '30532700414'},
+ {'nombre': 'INFINIT', 'cuit': '30711262713'},
+ {'nombre': 'GENARO Y ANDRES DE STEFANO', 'cuit': '30500689826'},
+ {'nombre': 'RUCANEDA S.A.', 'cuit': '30712269134'},
+ {'nombre': 'SARAZOLA', 'cuit': ''},
+ {'nombre': 'RBC CONSTRUCCIONES', 'cuit': '6 MONOTRIBUTISTAS'},
+ {'nombre': 'FIDEICOMISO DAPROTIS 4156 MAR DEL PLATA', 'cuit': '30717979296'},
+ {'nombre': 'OESTE (LAURA FARIAS)', 'cuit': '27149714826'},
+ {'nombre': 'DISTRISUPER S.R.L.', 'cuit': '30609249206'},
+ {'nombre': 'DIMES S.A.', 'cuit': '33715613439'},
+ {'nombre': 'ROCA 2936 MAR DEL PLATA S.A.', 'cuit': '30717026965'},
+ {'nombre': 'RAMOS SANCHEZ ALCIDES', 'cuit': ''},
+ {'nombre': 'GEHIE GASTRONOMICA SRL (alito)', 'cuit': '30681375135'},
+ {'nombre': 'GUSTAVO RIVERA PLOMERO', 'cuit': ''},
+ {'nombre': 'BARD ATILIO RENE', 'cuit': '20047463514'},
+ {'nombre': 'MAGGI MARCELO Y MAGGI MAURICIO SOC …', 'cuit': '30688684028'},
+ {'nombre': 'CRUZ GEORGE', 'cuit': ''},
+ {'nombre': 'MONDEGO DA GUARDA S.A.', 'cuit': '30716517361'},
+ {'nombre': 'GRUPO BOREAS S.R.L.', 'cuit': '30714816981'},
+ {'nombre': 'COOK MASTER S.A.', 'cuit': '30708214368'},
+ {'nombre': 'UP EXPLANADA S.A.', 'cuit': '33718243829'},
+ {'nombre': 'PEZZANA DIEGO', 'cuit': '20259572453'},
+ {'nombre': 'LUBRIEL SRL', 'cuit': '30711294704'},
+ {'nombre': 'MANALER S.A.', 'cuit': '30716570440'},
+ {'nombre': 'LOGISMAR S.R.L.', 'cuit': '30708043636'},
+ {'nombre': 'USAI ANALIA USAI GABRIELA USAI ESTEBAN S.H.', 'cuit': '33636629559'},
+ {'nombre': 'ANGELICO CORP', 'cuit': '30718290747'},
+ {'nombre': 'PROSEGUR S.A.', 'cuit': '30575170125'},
+ {'nombre': 'JUNCADELLA', 'cuit': '30546969874'},
+ {'nombre': 'MADRID', 'cuit': ''},
+ {'nombre': 'CAPARARO', 'cuit': '23272137404'}]
+
 
 st.set_page_config(
     page_title="S&S Group - Reportes PDF",
@@ -124,6 +189,41 @@ def init_db():
     con.commit()
     con.close()
 
+def migrar_clientes_gestion():
+    """Incorpora la cartera base de Gestión Administrativa sin duplicar clientes."""
+    con = conectar()
+    cur = con.cursor()
+    agregados = 0
+    for cli in CLIENTES_GESTION_BASE:
+        nombre = (cli.get("nombre") or "").strip()
+        cuit = (cli.get("cuit") or "").strip()
+        if not nombre:
+            continue
+
+        row = None
+        if cuit:
+            cur.execute("SELECT id FROM clientes WHERE TRIM(COALESCE(cuit, '')) = ?", (cuit,))
+            row = cur.fetchone()
+        if not row:
+            cur.execute("SELECT id FROM clientes WHERE LOWER(TRIM(nombre)) = LOWER(TRIM(?))", (nombre,))
+            row = cur.fetchone()
+
+        if row:
+            cur.execute(
+                "UPDATE clientes SET cuit = COALESCE(NULLIF(?, ''), cuit) WHERE id = ?",
+                (cuit, row[0]),
+            )
+        else:
+            cur.execute(
+                "INSERT INTO clientes (nombre, cuit, contacto, telefono, email, observaciones) VALUES (?, ?, '', '', '', ?)",
+                (nombre, cuit, "Migrado automáticamente desde Gestión Administrativa"),
+            )
+            agregados += 1
+
+    con.commit()
+    con.close()
+    return agregados
+
 def cargar_recomendaciones_base():
     con = conectar()
     cur = con.cursor()
@@ -155,12 +255,32 @@ def listar_clientes():
     return datos
 
 def crear_cliente(nombre, cuit, contacto, telefono, email, observaciones):
+    nombre = (nombre or "").strip()
+    cuit = (cuit or "").strip()
     con = conectar()
     cur = con.cursor()
-    cur.execute("""
-    INSERT INTO clientes (nombre, cuit, contacto, telefono, email, observaciones)
-    VALUES (?, ?, ?, ?, ?, ?)
-    """, (nombre, cuit, contacto, telefono, email, observaciones))
+    row = None
+    if cuit:
+        cur.execute("SELECT id FROM clientes WHERE TRIM(COALESCE(cuit, '')) = ?", (cuit,))
+        row = cur.fetchone()
+    if not row:
+        cur.execute("SELECT id FROM clientes WHERE LOWER(TRIM(nombre)) = LOWER(TRIM(?))", (nombre,))
+        row = cur.fetchone()
+    if row:
+        cur.execute("""
+            UPDATE clientes
+            SET cuit = COALESCE(NULLIF(?, ''), cuit),
+                contacto = COALESCE(NULLIF(?, ''), contacto),
+                telefono = COALESCE(NULLIF(?, ''), telefono),
+                email = COALESCE(NULLIF(?, ''), email),
+                observaciones = COALESCE(NULLIF(?, ''), observaciones)
+            WHERE id = ?
+        """, (cuit, contacto, telefono, email, observaciones, row[0]))
+    else:
+        cur.execute("""
+            INSERT INTO clientes (nombre, cuit, contacto, telefono, email, observaciones)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (nombre, cuit, contacto, telefono, email, observaciones))
     con.commit()
     con.close()
 
@@ -462,13 +582,18 @@ def generar_pdf(datos, hallazgos):
     story.append(Paragraph("1. OBSERVACIONES / HALLAZGOS", h2))
 
     for i, h in enumerate(hallazgos, start=1):
-        img_element = Paragraph("Sin imagen", normal)
-        if h.get("foto_path"):
+        fotos_hallazgo = h.get("foto_paths") or ([h.get("foto_path")] if h.get("foto_path") else [])
+        imagenes = []
+        for foto_h in fotos_hallazgo:
+            if not foto_h:
+                continue
             try:
-                iw, ih = fit_image_for_pdf(h["foto_path"])
-                img_element = RLImage(h["foto_path"], width=iw, height=ih)
+                iw, ih = fit_image_for_pdf(foto_h, max_w=7.5*cm, max_h=4.4*cm)
+                imagenes.append(RLImage(foto_h, width=iw, height=ih))
+                imagenes.append(Spacer(1, 4))
             except Exception:
-                img_element = Paragraph("No se pudo cargar la imagen", normal)
+                pass
+        img_element = imagenes if imagenes else Paragraph("Sin imagen", normal)
 
         texto = []
         prioridad = h.get("prioridad", "")
@@ -500,10 +625,29 @@ def generar_pdf(datos, hallazgos):
         story.append(item_table)
         story.append(Spacer(1, 8))
 
-    story.append(Paragraph("2. CONCLUSIÓN", h2))
+    story.append(Paragraph("2. OBSERVACIONES GENERALES", h2))
+    observaciones_generales = (datos.get("observaciones_generales") or "").strip()
+    story.append(Paragraph(observaciones_generales if observaciones_generales else "Sin observaciones adicionales.", normal))
+
+    story.append(Paragraph("3. CONCLUSIÓN", h2))
     story.append(Paragraph(datos.get("conclusion", ""), normal))
-    story.append(Spacer(1, 18))
-    story.append(Paragraph("Lic. Martín Nicolás Sirvent<br/>Higiene y Seguridad en el Trabajo<br/>LSH-007382 PBA CPSH", ParagraphStyle(
+    story.append(Spacer(1, 14))
+
+    profesional = PROFESIONALES.get(datos.get("tecnico"), PROFESIONALES["Lic. Martín Nicolás Sirvent"])
+    firma_path = profesional.get("firma")
+    if firma_path and Path(firma_path).exists():
+        try:
+            iw, ih = fit_image_for_pdf(str(firma_path), max_w=5.0*cm, max_h=2.2*cm)
+            story.append(RLImage(str(firma_path), width=iw, height=ih))
+            story.append(Spacer(1, 2))
+        except Exception:
+            pass
+
+    matricula = profesional.get("matricula", "")
+    firma_txt = f"{profesional.get('nombre','')}<br/>Higiene y Seguridad en el Trabajo"
+    if matricula:
+        firma_txt += f"<br/>{matricula}"
+    story.append(Paragraph(firma_txt, ParagraphStyle(
         "FirmaTexto",
         parent=normal,
         alignment=TA_LEFT,
@@ -517,12 +661,15 @@ def generar_pdf(datos, hallazgos):
 # APP
 # --------------------------------------------------
 init_db()
+migrar_clientes_gestion()
 cargar_recomendaciones_base()
 
 if "hallazgos" not in st.session_state:
     st.session_state.hallazgos = []
 if "ultimo_pdf" not in st.session_state:
     st.session_state.ultimo_pdf = None
+if "foto_widget_nonce" not in st.session_state:
+    st.session_state.foto_widget_nonce = 0
 
 with st.sidebar:
     if LOGO_PATH.exists():
@@ -542,7 +689,7 @@ if LOGO_PATH.exists():
     st.image(str(LOGO_PATH), width=360)
 
 st.markdown("<h1 class='main-title'>Sistema de Reportes de Obra</h1>", unsafe_allow_html=True)
-st.caption("S&S Group · Versión móvil · Clientes y obras reutilizables · PDF directo")
+st.caption("S&S Group · Clientes migrados de Gestión Administrativa · Múltiples obras por cliente · PDF directo")
 
 # ----------------------------
 # CLIENTES
@@ -668,7 +815,7 @@ elif menu == "Historial":
 # ----------------------------
 elif menu == "Nuevo reporte":
     st.header("Nuevo reporte PDF")
-    st.info("Cargá el reporte directamente. Al generar el PDF, el sistema guarda automáticamente el cliente, la obra y el historial con fecha.")
+    st.info("Elegí un cliente de Gestión Administrativa y luego una de sus obras. Si la obra todavía no existe, cargala una vez: al generar el PDF queda asociada a ese cliente.")
 
     with st.container(border=True):
         st.subheader("Datos del cliente y obra")
@@ -749,9 +896,19 @@ elif menu == "Nuevo reporte":
     col1, col2 = st.columns(2)
     with col1:
         fecha_visita = st.date_input("Fecha de visita", value=date.today())
-        tecnico = st.text_input("Responsable", value="Lic. Martín Nicolás Sirvent")
+        tecnico = st.selectbox(
+            "Profesional actuante / firma",
+            list(PROFESIONALES.keys()),
+            index=0,
+            help="El profesional seleccionado figurará como responsable y firmante del reporte."
+        )
     with col2:
         objetivo = st.text_area("Objetivo", value="Relevar condiciones de higiene y seguridad en obra, registrar desvíos y proponer medidas correctivas.")
+        observaciones_generales = st.text_area(
+            "Observaciones generales",
+            value="",
+            help="Espacio libre para aclaraciones generales que no correspondan a un hallazgo puntual."
+        )
         conclusion = st.text_area("Conclusión", value="Se recomienda implementar las medidas correctivas indicadas a fin de garantizar condiciones seguras de trabajo y prevenir incidentes.")
 
     st.divider()
@@ -761,32 +918,55 @@ elif menu == "Nuevo reporte":
     rec_options = ["Escribir manualmente"] + [f"{r[1]} · {r[2]}" for r in recs]
     rec_map = {f"{r[1]} · {r[2]}": r[3] for r in recs}
 
-    # La foto es opcional. La cámara NO se muestra salvo que el usuario la habilite.
+    # La foto es opcional. Se pueden seleccionar varias desde galería.
+    # Al agregar el hallazgo se incrementa el nonce y Streamlit crea un uploader/cámara limpio.
     adjuntar_foto = st.toggle(
-        "📎 Adjuntar foto a esta recomendación (opcional)",
+        "📎 Adjuntar foto(s) a esta recomendación (opcional)",
         value=False,
-        key="adjuntar_foto_hallazgo"
+        key=f"adjuntar_foto_hallazgo_{st.session_state.foto_widget_nonce}"
     )
 
-    foto = None
+    fotos = []
     if adjuntar_foto:
         modo_foto = st.radio(
-            "Origen de la foto",
+            "Origen de las fotos",
             ["📷 Abrir cámara", "🖼️ Elegir de galería"],
             horizontal=True,
-            key="modo_foto_hallazgo"
+            key=f"modo_foto_hallazgo_{st.session_state.foto_widget_nonce}"
         )
         if modo_foto == "📷 Abrir cámara":
-            foto = st.camera_input(
+            foto_camara = st.camera_input(
                 "Tomar foto para esta recomendación",
-                key="camara_hallazgo"
+                key=f"camara_hallazgo_{st.session_state.foto_widget_nonce}"
             )
+            if foto_camara:
+                fotos = [foto_camara]
+            st.caption("Con cámara se toma una foto por vez. Para adjuntar varias juntas, elegí Galería.")
         else:
-            foto = st.file_uploader(
-                "Elegir foto para esta recomendación",
+            fotos = st.file_uploader(
+                "Elegir una o varias fotos para esta recomendación",
                 type=["jpg", "jpeg", "png"],
-                key="galeria_hallazgo"
-            )
+                accept_multiple_files=True,
+                key=f"galeria_hallazgo_{st.session_state.foto_widget_nonce}"
+            ) or []
+
+    # Recomendación fuera del form para poder completar el texto inmediatamente al seleccionarla.
+    def actualizar_recomendacion_frecuente():
+        seleccion = st.session_state.get("rec_sel_hallazgo", "Escribir manualmente")
+        st.session_state["recomendacion_hallazgo"] = "" if seleccion == "Escribir manualmente" else rec_map.get(seleccion, "")
+
+    st.selectbox(
+        "Recomendación frecuente",
+        rec_options,
+        key="rec_sel_hallazgo",
+        on_change=actualizar_recomendacion_frecuente
+    )
+    recomendacion_manual = st.text_area(
+        "Recomendación técnica",
+        key="recomendacion_hallazgo",
+        height=130,
+        help="Al elegir una recomendación frecuente el texto se completa automáticamente y podés editarlo."
+    )
 
     with st.form("form_hallazgo", clear_on_submit=True):
         c1, c2 = st.columns(2)
@@ -797,23 +977,21 @@ elif menu == "Nuevo reporte":
             plazo = st.text_input("Plazo sugerido", value="Inmediato / A definir")
         with c2:
             observacion = st.text_area("Observación detectada", height=120)
-            rec_sel = st.selectbox("Recomendación frecuente", rec_options)
-            recomendacion_manual = st.text_area("Recomendación técnica manual")
 
         agregar = st.form_submit_button("➕ Agregar hallazgo")
         if agregar:
-            recomendacion = recomendacion_manual.strip()
-            if not recomendacion and rec_sel != "Escribir manualmente":
-                recomendacion = rec_map.get(rec_sel, "")
+            recomendacion = (recomendacion_manual or "").strip()
 
-            foto_path = None
-            if adjuntar_foto and foto:
-                nombre_original = getattr(foto, "name", "foto.jpg")
-                nombre = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{nombre_original}"
-                nombre = "".join(c for c in nombre if c.isalnum() or c in "._- ")
-                foto_path = UPLOADS / nombre
-                with open(foto_path, "wb") as f:
-                    f.write(foto.getbuffer())
+            foto_paths = []
+            if adjuntar_foto and fotos:
+                for idx_foto, foto in enumerate(fotos, start=1):
+                    nombre_original = getattr(foto, "name", f"foto_{idx_foto}.jpg")
+                    nombre = f"{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}_{idx_foto}_{nombre_original}"
+                    nombre = "".join(c for c in nombre if c.isalnum() or c in "._- ")
+                    foto_path = UPLOADS / nombre
+                    with open(foto_path, "wb") as f:
+                        f.write(foto.getbuffer())
+                    foto_paths.append(str(foto_path))
 
             st.session_state.hallazgos.append({
                 "sector": sector,
@@ -822,24 +1000,32 @@ elif menu == "Nuevo reporte":
                 "recomendacion": recomendacion,
                 "prioridad": prioridad,
                 "plazo": plazo,
-                "foto_path": str(foto_path) if foto_path else None
+                "foto_paths": foto_paths,
+                "foto_path": foto_paths[0] if foto_paths else None,
             })
-            st.success("Hallazgo agregado.")
+            # Limpia realmente los widgets de fotos y la recomendación para el próximo hallazgo.
+            st.session_state.foto_widget_nonce += 1
+            st.session_state["rec_sel_hallazgo"] = "Escribir manualmente"
+            st.session_state["recomendacion_hallazgo"] = ""
+            st.rerun()
 
     if st.session_state.hallazgos:
         for i, h in enumerate(st.session_state.hallazgos, start=1):
             with st.container(border=True):
                 st.markdown(f"### Hallazgo {i} · {h.get('prioridad','')}")
-                if h.get("foto_path"):
-                    st.image(h["foto_path"], use_container_width=True)
+                fotos_preview = h.get("foto_paths") or ([h.get("foto_path")] if h.get("foto_path") else [])
+                if fotos_preview:
+                    st.image(fotos_preview, use_container_width=True)
                 st.write(f"**Observación:** {h.get('observacion','')}")
                 st.write(f"**Recomendación:** {h.get('recomendacion','')}")
                 st.caption(f"Sector: {h.get('sector','')} · Riesgo: {h.get('riesgo','')} · Plazo: {h.get('plazo','')}")
                 if st.button("🗑️ Eliminar este hallazgo", key=f"del_h_{i}"):
                     borrado = st.session_state.hallazgos.pop(i-1)
                     try:
-                        if borrado.get("foto_path"):
-                            Path(borrado["foto_path"]).unlink(missing_ok=True)
+                        fotos_borrar = borrado.get("foto_paths") or ([borrado.get("foto_path")] if borrado.get("foto_path") else [])
+                        for foto_borrar in fotos_borrar:
+                            if foto_borrar:
+                                Path(foto_borrar).unlink(missing_ok=True)
                     except Exception:
                         pass
                     st.rerun()
@@ -875,6 +1061,7 @@ elif menu == "Nuevo reporte":
                         "fecha": fecha_visita.strftime("%d/%m/%Y"),
                         "tecnico": tecnico,
                         "objetivo": objetivo,
+                        "observaciones_generales": observaciones_generales,
                         "conclusion": conclusion,
                     }
                     pdf_path = generar_pdf(datos, st.session_state.hallazgos)
